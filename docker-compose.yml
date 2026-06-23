@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: worldcup_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: worldcup_user
+      POSTGRES_PASSWORD: worldcup_pass
+      POSTGRES_DB: worldcup_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./init-airflow-db.sql:/docker-entrypoint-initdb.d/init-airflow-db.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U worldcup_user -d worldcup_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  airflow:
+    image: apache/airflow:2.9.3-python3.11
+    container_name: worldcup_airflow
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow_user:airflow_pass@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      # نفس بيانات اتصال الـ pipeline بقاعدة بيانات worldcup_db (مش airflow_db)
+      PIPELINE_POSTGRES_HOST: postgres
+      PIPELINE_POSTGRES_PORT: "5432"
+      PIPELINE_POSTGRES_DB: worldcup_db
+      PIPELINE_POSTGRES_USER: worldcup_user
+      PIPELINE_POSTGRES_PASSWORD: worldcup_pass
+      FOOTBALL_API_TOKEN: ${FOOTBALL_API_TOKEN}
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./pipeline:/opt/airflow/pipeline
+      - airflow_logs:/opt/airflow/logs
+    command: >
+      bash -c "airflow db migrate &&
+               airflow users create --username admin --password admin --firstname Ahmed --lastname Nashaat --role Admin --email admin@example.com || true &&
+               airflow webserver & airflow scheduler"
+
+volumes:
+  pgdata:
+  airflow_logs:
